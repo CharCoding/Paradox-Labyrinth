@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8" />
+	<title>Paradox Labyrinth</title>
+	<style type="text/css">
+	body{
+		position: absolute;
+		left: 0;
+		right: 0;
+		top: 0;
+		bottom: 0;
+		margin: 0;
+	}
+	canvas{
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		width: 600px;
+		height: 600px;
+		margin: -300px;
+		cursor: crosshair;
+	}
+	#clip{
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		width: 600px;
+		height: 600px;
+		margin: -300px;
+		border-radius: 50%;
+		box-shadow:-300px 0 #000, 300px 0 #000, 0 -300px #000, 0 300px #000,
+		-300px -300px #000, -300px 300px #000, 300px -300px #000, 300px 300px #000;
+	}
+	</style>
+</head>
+<body>
+	<div id="clip"></div>
+	<canvas id="c" width="600" height="600"></canvas>
+	<script type="text/javascript">
+	var l = 600, //Math.min(document.body.clientWidth, document.body.clientHeight),
+	t = c.getContext('2d'),
+	game = { state: 0 }, // 0 - not started, 1 - started, 2 - paused, 3 - finished
+	player = { x: 0, y: 0, blockx: 5, blocky: 6, ang: 0, clip : 10 },
+	mouse = { x: 0, y: 0, offsetX: -300, offsetY: -300, down: false },
+	timer, proj = [], // projectiles array
+	keys = 0, // WASD key bitmask
+	vectors = [{ x: 0, y: 0 }, { x: 2, y: 0 }, { x: 0, y: -1 }, { x: 1.7888543819998317, y: -0.8944271909999159 }, { x: -2, y: 0 }, { x: 0, y: 0 }, { x: -1.7888543819998317, y: -0.8944271909999159 }, { x: 0, y: -0.5 }, { x: 0, y: 3 }, { x: 1.6641005886756874, y: 2.4961508830135313 }, { x: 0, y: 1.5 }, { x: 2, y: 2 }, { x: -1.6641005886756874, y: 2.4961508830135313 }, { x: 0, y: 4 }, { x: -2, y: 2 }, { x: 0, y: 0 }], // velocity vectors for all WASD combinations
+	points = [],
+	segments = [];
+	t.translate(300,300);
+	t.font = "14px monospace";
+	function draw() {
+		t.clearRect(player.x - 300, player.y - 300, l, l);
+		var v = vectors[keys], // move player
+			vx = v.x * Math.cos(player.ang + Math.PI / 2) + v.y * Math.cos(player.ang),
+			vy = v.x * Math.sin(player.ang + Math.PI / 2) + v.y * Math.sin(player.ang),
+			mx = vx > 0 ? 4 : -4,
+			my = vy > 0 ? 4 : -4;
+		if(isImpassable(Math.floor((player.x + vx + mx) / 50),Math.floor((player.y + my) / 50))) vx = 0;
+		if(isImpassable(Math.floor((player.x + mx) / 50),Math.floor((player.y + vy + my) / 50))) vy = 0;
+		mouse.offsetX += vx;
+		mouse.offsetY += vy;
+		t.translate(-vx, -vy);
+		player.x += vx;
+		player.y += vy;
+		player.blockx = Math.floor(player.x / 50);
+		player.blocky = Math.floor(player.y / 50);
+		player.ang = Math.atan2(mouse.y + mouse.offsetY - player.y, mouse.x + mouse.offsetX - player.x);
+		
+		for(var i = 0; i < proj.length; i++) {
+			var p = proj[i];
+			if(p.update()) p.draw();
+			else proj.splice(i--, 1);
+		}
+		var count = 0;
+		t.fillStyle = "rgba(0,0,0,0.87)";
+		t.strokeStyle = "rgba(255,255,0,0.8)";
+		t.lineWidth = "2";
+		t.beginPath();
+		for(var mx = Math.floor(player.x / 50) - 6, tx = Math.floor(player.x / 50) + 7; mx < tx; mx++){
+			for(var my = Math.floor(player.y / 50) - 6, ty = Math.floor(player.y / 50) + 7; my < ty; my++){
+				var dist = Math.hypot(mx * 50 + 25 - player.x, my * 50 + 25 - player.y),
+				ang = Math.atan2(my * 50 + 25 - player.y + Math.sin(player.ang) * 35.5, mx * 50 + 25 - player.x + Math.cos(player.ang) * 35.5);
+				if(dist <= 335.5 && (Math.abs(player.ang - ang) <= Math.PI / 2 || Math.abs(player.ang - ang) >= Math.PI / 2 * 3)) { // limits walls to semicircle w/ radius = 335.5 and angle difference <= Math.PI / 2
+					if(isImpassable(mx, my) && mx >= -33 && mx <= 32 && my >= -33 && my <= 32) {
+						t.fillRect(mx * 50, my * 50, 50, 50);
+						// Optimizations. These directions should work regardless of player angle.
+						if(mx * 50 > player.x && !isImpassable(mx - 1, my)) { // left wall is facing player
+							t.moveTo(mx * 50 - 1, my * 50);
+							t.lineTo(mx * 50 - 1, my * 50 + 50);
+							count++;
+						} else if(mx * 50 + 50 < player.x && !isImpassable(mx + 1, my)) { // right wall
+							t.moveTo(mx * 50 + 51, my * 50);
+							t.lineTo(mx * 50 + 51, my * 50 + 50);
+							count++;
+						}
+						if(my * 50 > player.y && !isImpassable(mx, my - 1)) { // top wall
+							t.moveTo(mx * 50, my * 50 - 1);
+							t.lineTo(mx * 50 + 50, my * 50 - 1);
+							count++;
+						} else if(my * 50 + 50 < player.y && !isImpassable(mx, my + 1)) { // bottom wall
+							t.moveTo(mx * 50, my * 50 + 51);
+							t.lineTo(mx * 50 + 50, my * 50 + 51);
+							count++;
+						}
+					}
+				}
+			}
+		}
+		t.stroke();
+		t.fillStyle = "#0f0"; // mouse/crosshair
+		t.fillRect(mouse.x + mouse.offsetX - 2, mouse.y + mouse.offsetY, 5, 1);
+		t.fillRect(mouse.x + mouse.offsetX, mouse.y + mouse.offsetY - 2, 1, 5);
+		t.fillStyle = "#003fff";
+		t.beginPath();
+		t.moveTo(player.x, player.y);
+		t.lineTo(player.x + Math.cos(player.ang - Math.PI * 0.75) * 10, player.y + Math.sin(player.ang - Math.PI * 0.75) * 10);
+		t.lineTo(player.x + Math.cos(player.ang) * 15, player.y + Math.sin(player.ang) * 15);
+		t.lineTo(player.x + Math.cos(player.ang + Math.PI * 0.75) * 10, player.y + Math.sin(player.ang + Math.PI * 0.75) * 10);
+		t.closePath();
+		t.fill(); // draw the player
+		//*//semicircle shadow (need line of sight plugin)
+		t.fillStyle = "#000";
+		t.beginPath();
+		t.arc(player.x,player.y,11,player.ang+Math.PI/2,player.ang-Math.PI/2,false);
+		t.arc(player.x,player.y,301,player.ang-Math.PI/2,player.ang+Math.PI/2,true);
+		t.closePath();
+		t.fill();
+		//*/
+		t.fillStyle = "#007fff";
+		t.fillText(Math.round(player.x) + ' ' + Math.round(player.y) + ' ' + mouse.x + ' ' + mouse.y, player.x - l / 2 + 18, player.y - l / 2 + 18);
+		t.fillText(player.blockx + ' ' + player.blocky, player.x - l / 2 + 18, player.y - l / 2 + 36);
+		t.fillText((player.ang * 180 / Math.PI).toFixed(1) + ' s:' + count, player.x + l / 2 - 144, player.y - l / 2 + 18);
+		t.fillText(Math.hypot(mouse.x + mouse.offsetX - player.x, mouse.y + mouse.offsetY - player.y).toFixed(1),
+			player.x + l / 2 - 72, player.y - l / 2 + 36);
+		timer = requestAnimationFrame(draw);
+	}
+	function isImpassable(x, y){ // allow [-32 ~ 31]
+		if(x < -32 || x > 31 || y < -32 || y > 31) return true; // range can be increased for bigger map
+		var z = (x + 32 ^ y + 32 << 10 ^ x * y * (x + y) * (x - y) - 1) & 65535;
+		return (101.5 * (z * z + z + 466) & 65535) <= 22222;
+	}
+	function projectile(x, y, ang) { // bullets should only show 2 frames - trigger and hit. No trajectory.
+		this.x = x;
+		this.y = y;
+		this.ang = ang;
+		this.draw = function() {
+			t.beginPath();
+			t.moveTo(this.x, this.y);
+			t.lineTo(this.x + 4 * Math.cos(this.ang), this.y + 4 * Math.sin(this.ang));
+			t.strokeStyle = "#f00";
+			t.stroke();
+		}
+		this.update = function() {
+			var vx = projectile.speed * Math.cos(this.ang),
+			vy = projectile.speed * Math.sin(this.ang);
+			if(isImpassable(Math.floor((this.x + vx) / 50), Math.floor(this.y / 50)) &&
+				 isImpassable(Math.floor(this.x / 50), Math.floor((this.y + vy) / 50)) ||
+				 Math.hypot(this.x + vx - player.x, this.y + vy - player.y) > 300) {
+				return false;
+			}
+			this.x += vx;
+			this.y += vy;
+			return true;
+		}
+		return this;
+	}
+	projectile.speed = 8;
+	// events
+	document.body.addEventListener('keydown', function(e) {
+		switch(e.keyCode) {
+			case 87:
+				keys |= 8; break;
+			case 65:
+				keys |= 4; break;
+			case 83:
+				keys |= 2; break;
+			case 68:
+				keys |= 1; break;
+			case 27:
+			case 80:
+				if(game.state == 1) game.state = 2, cancelAnimationFrame(timer);
+				else if(game.state == 2) game.state = 1, timer = requestAnimationFrame(draw);
+				break;
+		}
+	});
+	document.body.addEventListener('keyup', function(e) {
+		switch(e.keyCode) {
+			case 87:
+				keys &= 7; break;
+			case 65:
+				keys &= 11; break;
+			case 83:
+				keys &= 13; break;
+			case 68:
+				keys &= 14;
+		}
+	});
+	c.addEventListener('mousemove', function(e) { mouse.x = e.offsetX; mouse.y = e.offsetY; });
+	/*
+	document.body.addEventListener('mousedown', function(e) { if(e.which == 1) mouse.down = true; });
+	document.body.addEventListener('mouseup', function(e) {
+		if(e.which == 1) mouse.down = false;
+		else {
+			mouse.down = !mouse.down;
+			//player.cooldown = 6;
+		}
+	});
+	*/
+	c.addEventListener('click',function(e){
+		if(game.state == 1 && player.clip){
+			player.clip--;
+			proj.push(new projectile(player.x, player.y, player.ang));
+		}
+	});
+	c.addEventListener('contextmenu', function(e) { e.preventDefault(); return false; });
+	game.state = 1;
+	timer = requestAnimationFrame(draw);
+	</script>
+</body>
